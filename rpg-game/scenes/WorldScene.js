@@ -27,6 +27,12 @@ class WorldScene extends Phaser.Scene {
     this._setupInput();
     this._setupCollisions();
 
+    // Listen for menu closures from the UI to reset interaction cooldowns
+    const ui = this.scene.get('UIScene');
+    ui.events.on('menuClosed', () => {
+      this._lastInteractTime = this.time.now;
+    }, this);
+
     // Tell UIScene we're ready so it can hook into our events
     this.events.emit('worldReady');
   }
@@ -355,11 +361,15 @@ class WorldScene extends Phaser.Scene {
   // ─── Interact (E key) ────────────────────────────────────────────
   /** Checks for proximity to NPCs when the interaction key is pressed. */
   _handleInteract() {
-    if (!Phaser.Input.Keyboard.JustDown(this.interactKey)) return;
-
     // If a menu is already open, let UIScene handle the 'E' press to close it.
     const uiScene = this.scene.get('UIScene');
     if (uiScene && (uiScene.dialogOpen || uiScene.shopOpen)) return;
+
+    if (!Phaser.Input.Keyboard.JustDown(this.interactKey)) return;
+
+    // Cooldown check: ensures we don't restart a dialogue immediately after closing one
+    const cooldown = 400; 
+    if (this.time.now < (this._lastInteractTime || 0) + cooldown) return;
 
     // Find closest NPC within 70px
     let closest = null;
@@ -375,14 +385,16 @@ class WorldScene extends Phaser.Scene {
 
       // Special handling for the Merchant to open the shop
       if (closest.npcName?.toLowerCase() === 'merchant') {
-        this.events.emit('openShop', {
+        this.events.emit('showDialogue', {
           name: closest.npcName,
+          text: closest.dialogText,
           items: [
             { name: 'healthPotion', label: 'HP Potion', price: 15 },
             { name: 'sword',        label: 'Iron Sword', price: 60 },
             { name: 'mystery_map',  label: 'Secret Map', price: 100 }
           ]
         });
+        this._lastInteractTime = this.time.now;
         return;
       }
 
@@ -391,6 +403,7 @@ class WorldScene extends Phaser.Scene {
         name: closest.npcName,
         text: closest.dialogText
       });
+      this._lastInteractTime = this.time.now;
     }
   }
 
@@ -553,9 +566,9 @@ class WorldScene extends Phaser.Scene {
       this.registry.set('totalGoldEarned', total);
     } else {
       // Generic item → add to inventory
-      const inv = this.registry.get('inventory');
-      inv.push({ name: item.itemType, label: item.itemLabel });
-      this.registry.set('inventory', inv);
+      const currentInv = this.registry.get('inventory') || [];
+      const newInv = [...currentInv, { name: item.itemType, label: item.itemLabel }];
+      this.registry.set('inventory', newInv);
       this.events.emit('inventoryUpdated');
     }
 

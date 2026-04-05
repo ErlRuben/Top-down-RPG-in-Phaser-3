@@ -46,6 +46,25 @@ class UIScene extends Phaser.Scene {
       { fontSize: '10px', color: 'rgba(255,255,255,0.45)' }
     ).setOrigin(1).setScrollFactor(0).setDepth(50);
 
+    // ── Equipment Bar (Bottom Left) ──
+    const eqpY = this.scale.height - 45;
+    this.add.text(pad, eqpY - 15, 'EQUIPMENT', {
+      fontSize: '9px', color: '#94a3b8', fontStyle: 'bold'
+    }).setOrigin(0).setScrollFactor(0).setDepth(50);
+
+    this.eqpSlots = [];
+    for (let i = 0; i < 2; i++) {
+      const sx = pad + (i * 55);
+      const bg = this.add.rectangle(sx, eqpY, 50, 30, 0x000000, 0.4)
+        .setOrigin(0).setScrollFactor(0).setDepth(50).setStrokeStyle(1, 0x334155);
+      
+      const label = this.add.text(sx + 25, eqpY + 15, '', {
+        fontSize: '9px', color: '#f8fafc', wordWrap: { width: 46 }
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(51);
+
+      this.eqpSlots.push({ bg, label });
+    }
+
     this._refreshHUD();
   }
 
@@ -64,6 +83,14 @@ class UIScene extends Phaser.Scene {
     this.hpFill.fillColor = col;
     this.hpText.setText(`HP  ${hp} / ${maxHP}`);
     this.goldText.setText(`⬡ ${gold} gold`);
+
+    // Update Equipment Bar (First 2 items)
+    const inv = this.registry.get('inventory') ?? [];
+    this.eqpSlots.forEach((slot, i) => {
+      const item = inv[i];
+      slot.label.setText(item ? (item.label ?? item.name) : '---');
+      slot.bg.setStrokeStyle(1, item ? 0x4ade80 : 0x334155);
+    });
   }
 
   // ─── Dialogue box (typewriter) ────────────────────────────────────
@@ -103,6 +130,7 @@ class UIScene extends Phaser.Scene {
     this._typeTimer    = null;
     this._fullText     = '';
     this._charIndex    = 0;
+    this._pendingShopData = null;
   }
 
   /** Helper function to toggle the visibility of all dialogue-related components. */
@@ -120,6 +148,9 @@ class UIScene extends Phaser.Scene {
     if (this._typeTimer) { this._typeTimer.remove(); this._typeTimer = null; }
 
     this.dialogName.setText(data.name ?? '');
+    // Store shop data if this dialogue is coming from a Merchant
+    this._pendingShopData = data.items ? data : null;
+
     this.dialogText.setText('');
     this._fullText  = data.text ?? '';
     this._charIndex = 0;
@@ -133,24 +164,38 @@ class UIScene extends Phaser.Scene {
       callback: () => {
         this._charIndex++;
         this.dialogText.setText(this._fullText.slice(0, this._charIndex));
+        // Null the timer once finished so _closeDialogue knows we are done typing
+        if (this._charIndex >= this._fullText.length) {
+          this._typeTimer = null;
+        }
       }
     });
   }
 
   /** Closes the dialogue box or completes the typewriter text immediately if still typing. */
   _closeDialogue() {
-    if (this._typeTimer) {
-      // If still typing, first press shows full text immediately
-      if (this._charIndex < this._fullText.length) {
-        this._typeTimer.remove();
-        this._typeTimer = null;
-        this.dialogText.setText(this._fullText);
-        this._charIndex = this._fullText.length;
-        return;
-      }
+    // If still typing, the 'E' press "fastens" the text instead of closing
+    if (this._typeTimer && this._charIndex < this._fullText.length) {
+      this._typeTimer.remove();
+      this._typeTimer = null;
+      this.dialogText.setText(this._fullText);
+      this._charIndex = this._fullText.length;
+      return; // Return early to stay in dialogue
     }
+
+    // Otherwise, close the dialogue
     this._setDialogVisible(false);
     this.dialogOpen = false;
+
+    // Signal to WorldScene that the menu is gone so it can reset interaction cooldowns
+    this.events.emit('menuClosed');
+
+    // If this dialogue was a precursor to a shop, open the shop now
+    if (this._pendingShopData) {
+      const data = this._pendingShopData;
+      this._pendingShopData = null;
+      this._setShopVisible(true, data);
+    }
   }
 
   // ─── Inventory panel ─────────────────────────────────────────────
@@ -284,6 +329,9 @@ class UIScene extends Phaser.Scene {
     this.shopTitle.setVisible(v);
     this.shopItemContainer.removeAll(true);
 
+    // Signal that a menu was closed if v is false
+    if (!v) this.events.emit('menuClosed');
+
     const inv = this.registry.get('inventory') ?? [];
 
     if (v && data) {
@@ -375,6 +423,7 @@ class UIScene extends Phaser.Scene {
       targetScene.events.on('playerHealed', () => this._refreshHUD(), this);
       targetScene.events.on('goldChanged', () => this._refreshHUD(), this);
       targetScene.events.on('inventoryUpdated', () => {
+        this._refreshHUD();
         if (this.invOpen) this._renderInventory();
       }, this);
       targetScene.events.on('openShop', (data) => this._setShopVisible(true, data), this);
