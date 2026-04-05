@@ -11,6 +11,8 @@ class BootScene extends Phaser.Scene {
     // Reset all shared game state to defaults for a fresh start on refresh.
     this.registry.set('playerHP',    100);
     this.registry.set('playerMaxHP', 100);
+    this.registry.set('playerStamina', 100);
+    this.registry.set('playerMaxStamina', 100);
     this.registry.set('gold',        0);
     this.registry.set('inventory',   []);
 
@@ -20,7 +22,10 @@ class BootScene extends Phaser.Scene {
     this.registry.set('enemiesKilled',    this.registry.get('enemiesKilled') ?? 0);
     this.registry.set('dungeonRuns',      this.registry.get('dungeonRuns') ?? 0);
 
-    // Move on to asset loading
+    // Load Leaderboards (Life History)
+    const history = JSON.parse(localStorage.getItem('lifeHistory') || '[]');
+    this.registry.set('lifeHistory', history);
+
     this.scene.start('PreloadScene');
   }
 }

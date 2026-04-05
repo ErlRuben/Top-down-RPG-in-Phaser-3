@@ -35,29 +35,41 @@ class UIScene extends Phaser.Scene {
       fontSize: '10px', color: '#ffffff', fontStyle: 'bold'
     }).setOrigin(0.5).setScrollFactor(0).setDepth(52);
 
+    // ── Stamina bar ──
+    this.add.rectangle(pad, pad + 20, 164, 8, 0x000000, 0.55).setOrigin(0).setScrollFactor(0).setDepth(50);
+    this.staminaFill = this.add.rectangle(pad + 2, pad + 21, 160, 6, 0xfbbf24).setOrigin(0).setScrollFactor(0).setDepth(51);
+
+    // Stamina text label
+    this.staminaText = this.add.text(pad + 82, pad + 24, '', {
+      fontSize: '7px', color: '#ffffff', fontStyle: 'bold'
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(52);
+
     // ── Gold counter ──
-    this.goldText = this.add.text(pad, pad + 24, '⬡ 0 gold', {
+    this.goldText = this.add.text(pad, pad + 32, '⬡ 0 gold', {
       fontSize: '12px', color: '#fbbf24', fontStyle: 'bold'
     }).setOrigin(0).setScrollFactor(0).setDepth(51);
 
     // ── Controls hint ──
     this.add.text(this.scale.width - pad, this.scale.height - pad,
-      'Arrows/WASD: move   SPACE: attack   E: talk   I: inventory',
+      'Arrows: move  SHIFT: run  SPACE: attack  1-5: use items',
       { fontSize: '10px', color: 'rgba(255,255,255,0.45)' }
     ).setOrigin(1).setScrollFactor(0).setDepth(50);
 
     // ── Equipment Bar (Bottom Left) ──
-    const eqpY = this.scale.height - 45;
+    const eqpY = this.scale.height - 50;
     this.add.text(pad, eqpY - 15, 'EQUIPMENT', {
       fontSize: '9px', color: '#94a3b8', fontStyle: 'bold'
     }).setOrigin(0).setScrollFactor(0).setDepth(50);
 
     this.eqpSlots = [];
-    for (let i = 0; i < 2; i++) {
-      const sx = pad + (i * 55);
+    for (let i = 0; i < 5; i++) {
+      const sx = pad + (i * 52);
       const bg = this.add.rectangle(sx, eqpY, 50, 30, 0x000000, 0.4)
         .setOrigin(0).setScrollFactor(0).setDepth(50).setStrokeStyle(1, 0x334155);
       
+      this.add.text(sx + 5, eqpY + 5, (i + 1), { fontSize: '8px', color: '#64748b' })
+        .setScrollFactor(0).setDepth(51);
+
       const label = this.add.text(sx + 25, eqpY + 15, '', {
         fontSize: '9px', color: '#f8fafc', wordWrap: { width: 46 }
       }).setOrigin(0.5).setScrollFactor(0).setDepth(51);
@@ -75,16 +87,21 @@ class UIScene extends Phaser.Scene {
 
     const hp    = this.registry.get('playerHP')    ?? 100;
     const maxHP = this.registry.get('playerMaxHP') ?? 100;
+    const stm   = this.registry.get('playerStamina') ?? 100;
+    const maxStm = this.registry.get('playerMaxStamina') ?? 100;
     const gold  = this.registry.get('gold')        ?? 0;
     const ratio = Math.max(0, hp / maxHP);
+    const sRatio = Math.max(0, stm / maxStm);
 
-    this.hpFill.width = Math.round(160 * ratio);
+    this.hpFill.width = 160 * ratio;
+    this.staminaFill.width = 160 * sRatio;
     const col = ratio > 0.5 ? 0x4ade80 : ratio > 0.25 ? 0xfbbf24 : 0xef4444;
     this.hpFill.fillColor = col;
     this.hpText.setText(`HP  ${hp} / ${maxHP}`);
+    this.staminaText.setText(`STM  ${Math.floor(stm)} / ${maxStm}`);
     this.goldText.setText(`⬡ ${gold} gold`);
 
-    // Update Equipment Bar (First 2 items)
+    // Update Equipment Bar (First 5 items)
     const inv = this.registry.get('inventory') ?? [];
     this.eqpSlots.forEach((slot, i) => {
       const item = inv[i];
@@ -456,13 +473,43 @@ class UIScene extends Phaser.Scene {
   _setupInput() {
     this.invKey   = this.input.keyboard.addKey('I');
     this.closeKey = this.input.keyboard.addKey('E');
+    this.numKeys = this.input.keyboard.addKeys('ONE,TWO,THREE,FOUR,FIVE');
 
     this.invKey.on('down', () => this._toggleInventory());
+
+    // Equipment usage keys 1-5
+    const keyNames = ['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE'];
+    keyNames.forEach((keyName, index) => {
+      this.numKeys[keyName].on('down', () => this._useEquipment(index));
+    });
   }
+
+  _useEquipment(index) {
+    const inv = this.registry.get('inventory') || [];
+    const item = inv[index];
+    if (!item) return;
+
+    if (item.name === 'healthPotion') {
+      const maxHP = this.registry.get('playerMaxHP');
+      const newHP = Math.min(maxHP, this.registry.get('playerHP') + 20);
+      this.registry.set('playerHP', newHP);
+      // Remove item from inventory
+      const newInv = [...inv];
+      newInv.splice(index, 1);
+      this.registry.set('inventory', newInv);
+      
+      this.events.emit('playerHealed');
+      this._refreshHUD();
+      } else if (item.name === 'sword') {
+        console.log("Sword is already equipped and providing bonus damage!");
+      }
+    }
 
   // ─── update ──────────────────────────────────────────────────────
   /** UI update loop. Currently empty as the HUD uses an efficient event-based update system. */
   update() {
+    this._refreshHUD();
+
     // Handle closing menus in update so WorldScene has a chance to ignore the input first
     if (Phaser.Input.Keyboard.JustDown(this.closeKey)) {
       if (this.dialogOpen) this._closeDialogue();

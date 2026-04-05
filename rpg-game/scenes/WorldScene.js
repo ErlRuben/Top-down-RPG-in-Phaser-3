@@ -1,5 +1,4 @@
 // rpg-game/scenes/WorldScene.js
-// scenes/WorldScene.js
 // The main game world: tilemap, player, NPCs, enemies, items, warps, camera.
 
 class WorldScene extends Phaser.Scene {
@@ -67,20 +66,20 @@ class WorldScene extends Phaser.Scene {
       this.walls.add(wall);
     });
 
-    // ── NPC Settlement Camp Decorations ──
-    // Note: These can now be moved into your Tiled map as an Object Layer, 
-    // but we'll keep them here as hardcoded visual flair for now.
-    // A simple campfire in the middle of the camp
     this.add.circle(500, 420, 10, 0xf59e0b).setDepth(1);
     this.add.text(500, 440, "Settlement Camp", { fontSize: '12px', color: '#fbbf24' }).setOrigin(0.5);
-
-    // Placeholder "Tents" for the NPCs
-    this.add.rectangle(450, 340, 60, 40, 0x7c2d12).setDepth(1); // Left Tent
-    this.add.rectangle(550, 340, 60, 40, 0x7c2d12).setDepth(1); // Right Tent
 
     // Log benches near the fire
     this.add.rectangle(500, 380, 80, 10, 0x5c3d1a).setDepth(1);
     this.add.rectangle(500, 460, 80, 10, 0x5c3d1a).setDepth(1);
+
+    // ── NPC Settlement Camp Physics ──
+    this.tents = this.physics.add.staticGroup();
+    // Use the same objects for visuals and physics to avoid displacement
+    const t1 = this.add.rectangle(450, 340, 60, 40, 0x7c2d12).setDepth(1);
+    const t2 = this.add.rectangle(550, 340, 60, 40, 0x7c2d12).setDepth(1);
+    this.tents.add(t1);
+    this.tents.add(t2);
   }
 
   // ─── Player ──────────────────────────────────────────────────────
@@ -221,7 +220,6 @@ class WorldScene extends Phaser.Scene {
       { x: 650,  y: 550, type: 'gold',         color: 0xfbbf24, label: '10g'     },
       { x: 1000, y: 250, type: 'gold',         color: 0xfbbf24, label: '10g'     },
       { x: 250,  y: 650, type: 'healthPotion', color: 0xff6b8a, label: 'HP +20'  },
-      { x: 850,  y: 800, type: 'sword',        color: 0x93c5fd, label: 'Sword!'  },
     ];
 
     itemDefs.forEach(def => {
@@ -305,6 +303,9 @@ class WorldScene extends Phaser.Scene {
     // Player ↔ NPCs (block movement)
     this.physics.add.collider(this.player, this.npcs);
 
+    // Player ↔ Camp Tents
+    this.physics.add.collider(this.player, this.tents);
+
     // Player ↔ Enemies (block movement so they don't overlap)
     this.physics.add.collider(this.player, this.enemies);
 
@@ -322,6 +323,17 @@ class WorldScene extends Phaser.Scene {
   // ─────────────────────────────────────────────────────────────────
   /** The main game loop: updates player input, AI logic, and health bar positions every frame. */
   update(time, delta) {
+    // Auto-close UI if player walks away
+    const ui = this.scene.get('UIScene');
+    if ((ui.dialogOpen || ui.shopOpen) && this._interactingNPC) {
+      const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, this._interactingNPC.x, this._interactingNPC.y);
+      if (dist > 120) {
+        if (ui.dialogOpen) ui._closeDialogue();
+        if (ui.shopOpen) ui._setShopVisible(false);
+        this._interactingNPC = null;
+      }
+    }
+
     this._handlePlayerMovement();
     this._handleInteract();
     this._handleAttack(time);
@@ -332,11 +344,26 @@ class WorldScene extends Phaser.Scene {
   // ─── Player movement ─────────────────────────────────────────────
   /** Reads movement keys and applies velocity/animations to the player object. */
   _handlePlayerMovement() {
-    const speed  = 130;
     const left   = this.cursors.left.isDown  || this.wasd.A.isDown;
     const right  = this.cursors.right.isDown || this.wasd.D.isDown;
     const up     = this.cursors.up.isDown    || this.wasd.W.isDown;
     const down   = this.cursors.down.isDown  || this.wasd.S.isDown;
+    const isMoving = left || right || up || down;
+
+    let stamina = this.registry.get('playerStamina');
+    // Only consider the player "running" if they are actually moving and holding Shift
+    const isRunning = (this.cursors.shift.isDown || this.input.keyboard.addKey('SHIFT').isDown) && stamina > 0 && isMoving;
+    const speed = isRunning ? 220 : 130;
+
+    if (isRunning) {
+      // Drain stamina slowly (reduced further to 0.1 for better feel)
+      stamina = Math.max(0, stamina - 0.1);
+      this.registry.set('playerStamina', stamina);
+    } else {
+      // Recover stamina when not running
+      const maxStm = this.registry.get('playerMaxStamina');
+      if (stamina < maxStm) this.registry.set('playerStamina', Math.min(maxStm, stamina + 0.2));
+    }
 
     this.player.setVelocity(0);
 
@@ -404,14 +431,24 @@ class WorldScene extends Phaser.Scene {
         text: closest.dialogText
       });
       this._lastInteractTime = this.time.now;
+      this._interactingNPC = closest;
     }
   }
 
   // ─── Attack (SPACE key) ──────────────────────────────────────────
   /** Handles player attacks, enemy damage calculations, knockback, and death logic. */
   _handleAttack(time) {
+    const stamina = this.registry.get('playerStamina') ?? 100;
+    if (stamina < 15) return; // Require stamina to swing
+
     if (!Phaser.Input.Keyboard.JustDown(this.attackKey)) return;
 
+    // Consume stamina
+    this.registry.set('playerStamina', Math.max(0, stamina - 15));
+
+    const inventory = this.registry.get('inventory') || [];
+    const hasSword = inventory.some(item => item.name === 'sword');
+    const dmg = hasSword ? 10 : 2;
     const attackRange = 55;
 
     // Flash the player white briefly
@@ -428,10 +465,10 @@ class WorldScene extends Phaser.Scene {
       );
       if (dist <= attackRange) {
         // Deal damage
-        enemy.hp -= 10;
+        enemy.hp -= dmg;
         
         // Track lifetime damage
-        const totalDmg = (this.registry.get('totalDamageDealt') || 0) + 10;
+        const totalDmg = (this.registry.get('totalDamageDealt') || 0) + dmg;
         this.registry.set('totalDamageDealt', totalDmg);
 
         // Knockback: push enemy away from player
@@ -449,8 +486,8 @@ class WorldScene extends Phaser.Scene {
         });
 
         // Damage popup
-        const popup = this.add.text(enemy.x, enemy.y - 20, '-10', {
-          fontSize: '14px', color: '#ef4444', fontStyle: 'bold'
+        const popup = this.add.text(enemy.x, enemy.y - 20, `-${dmg}`, {
+          fontSize: '14px', color: hasSword ? '#ef4444' : '#ffffff', fontStyle: 'bold'
         }).setDepth(20);
         this.tweens.add({
           targets: popup, y: popup.y - 30, alpha: 0, duration: 700,
@@ -466,6 +503,9 @@ class WorldScene extends Phaser.Scene {
           this.registry.set('gold', gold);
           this.events.emit('goldChanged', gold);
           
+          const coinPop = this.add.text(enemy.x, enemy.y, '+5g', { fontSize: '12px', color: '#fbbf24' });
+          this.tweens.add({ targets: coinPop, y: enemy.y - 50, alpha: 0, duration: 1000, onComplete: () => coinPop.destroy() });
+
           // Track lifetime stats
           this.registry.set('totalGoldEarned', (this.registry.get('totalGoldEarned') || 0) + 5);
           this.registry.set('enemiesKilled', (this.registry.get('enemiesKilled') || 0) + 1);

@@ -9,9 +9,15 @@ class GameOverScene extends Phaser.Scene {
     // Darken background
     this.add.rectangle(0, 0, width, height, 0x000000, 0.8).setOrigin(0);
 
-    this.add.text(width / 2, height / 2 - 100, 'GAME OVER', {
-      fontSize: '48px', color: '#ef4444', fontStyle: 'bold'
+    this.add.text(width / 2, height / 2 - 140, 'YOU FAILED', {
+      fontSize: '42px', color: '#ef4444', fontStyle: 'bold'
     }).setOrigin(0.5);
+
+    this.add.text(width / 2, height / 2 - 100, '"removing progresses and now initiate regression sequence - God"', {
+      fontSize: '14px', color: '#ffffff', fontStyle: 'italic'
+    }).setOrigin(0.5);
+
+    this._saveScore();
 
     // Summary of stats from the run
     const statsText = 
@@ -42,6 +48,19 @@ class GameOverScene extends Phaser.Scene {
 
     // Press Space to retry too
     this.input.keyboard.once('keydown-SPACE', () => this._resetGame());
+  }
+
+  _saveScore() {
+    const history = JSON.parse(localStorage.getItem('lifeHistory') || '[]');
+    const newScore = {
+      date: new Date().toLocaleDateString(),
+      kills: this.registry.get('enemiesKilled'),
+      gold: this.registry.get('totalGoldEarned')
+    };
+    history.push(newScore);
+    history.sort((a, b) => b.gold - a.gold);
+    const top10 = history.slice(0, 10);
+    localStorage.setItem('lifeHistory', JSON.stringify(top10));
   }
 
   _resetGame() {

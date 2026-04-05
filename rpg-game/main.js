@@ -14,7 +14,7 @@ const config = {
     }
   },
   // Scenes run in order: Boot → Preload → World (+ UI on top)
-  scene: [BootScene, PreloadScene, WorldScene, UIScene, GameOverScene]
+  scene: [BootScene, PreloadScene, StartScene, WorldScene, UIScene, GameOverScene]
 };
 
 /** Entry point: waits for the browser window to finish loading before starting the Phaser instance. */

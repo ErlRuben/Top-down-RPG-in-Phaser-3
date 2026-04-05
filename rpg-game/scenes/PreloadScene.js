@@ -55,8 +55,7 @@ class PreloadScene extends Phaser.Scene {
 
   /** Transitions to the WorldScene and initializes the UI overlay once assets are ready. */
   create() {
-    // Start the world and keep the HUD overlay running permanently on top
-    this.scene.start('WorldScene');
-    this.scene.launch('UIScene');
+    // Move to the Start Menu instead of launching the game directly
+    this.scene.start('StartScene');
   }
 }
