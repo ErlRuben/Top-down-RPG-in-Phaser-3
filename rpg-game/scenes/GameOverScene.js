@@ -19,7 +19,7 @@ class GameOverScene extends Phaser.Scene {
 
     this._saveScore();
 
-    // Summary of stats from the run
+    // Summary of stats from the running
     const statsText = 
       `Enemies Defeated: ${this.registry.get('enemiesKilled')}\n` +
       `Total Damage: ${this.registry.get('totalDamageDealt')}\n` +
